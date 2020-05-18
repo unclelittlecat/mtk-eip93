@@ -45,7 +45,8 @@ struct mtk_cipher_ctx {
 	struct mtk_context		base;
 	struct mtk_device		*mtk;
 	struct saRecord_s		*sa;
-	struct crypto_sync_skcipher	*fallback;
+	// For kernel 4.14 
+	struct crypto_skcipher	*fallback;
 
 	/* AEAD specific */
 	unsigned int		authsize;

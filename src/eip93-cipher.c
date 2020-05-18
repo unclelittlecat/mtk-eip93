@@ -11,7 +11,8 @@
 #include <crypto/ctr.h>
 #include <crypto/hmac.h>
 #include <crypto/internal/aead.h>
-#include <crypto/internal/des.h>
+//#include <crypto/internal/des.h>
+#include <crypto/des.h>
 #include <crypto/internal/skcipher.h>
 #include <crypto/md5.h>
 #include <crypto/null.h>
@@ -689,7 +690,8 @@ static int mtk_skcipher_cra_init(struct crypto_tfm *tfm)
 	if (!ctx->sa)
 		printk("!! no sa memory\n");
 
-	ctx->fallback = crypto_alloc_sync_skcipher(crypto_tfm_alg_name(tfm), 0,
+	// For kernel 4.14 
+	ctx->fallback = crypto_alloc_skcipher(crypto_tfm_alg_name(tfm), 0,
 				CRYPTO_ALG_ASYNC | CRYPTO_ALG_NEED_FALLBACK);
 
 	if (IS_ERR(ctx->fallback))
@@ -704,8 +706,9 @@ static void mtk_skcipher_cra_exit(struct crypto_tfm *tfm)
 
 	kfree(ctx->sa);
 
+	// For kernel 4.14 
 	if (ctx->fallback)
-		crypto_free_sync_skcipher(ctx->fallback);
+		crypto_free_skcipher(ctx->fallback);
 }
 
 static int mtk_skcipher_setkey(struct crypto_skcipher *ctfm, const u8 *key,
@@ -720,6 +723,7 @@ static int mtk_skcipher_setkey(struct crypto_skcipher *ctfm, const u8 *key,
 	unsigned int keylen = len;
 	u32 nonce = 0;
 	int ret = 0;
+	u32 tmp[DES_EXPKEY_WORDS];
 
 	if (!key || !keylen)
 		return -EINVAL;
@@ -732,17 +736,29 @@ static int mtk_skcipher_setkey(struct crypto_skcipher *ctfm, const u8 *key,
 
 	switch ((flags & MTK_ALG_MASK)) {
 	case MTK_ALG_AES:
-		ret = aes_expandkey(&aes, key, keylen);
+	// For kernel 4.14 
+		ret = crypto_aes_expand_key(&aes, key, keylen);
 		break;
 	case MTK_ALG_DES:
-		ret = verify_skcipher_des_key(ctfm, key);
+	// For kernel 4.14 
+		//ret = verify_skcipher_des_key(ctfm, key);
+	  	if (!des_ekey(tmp, key) &&
+		  	(tfm->crt_flags & CRYPTO_TFM_REQ_WEAK_KEY)) 
+		{
+		    ret = EINVAL;
+	  	}
 		break;
 	case MTK_ALG_3DES:
 		if (keylen != DES3_EDE_KEY_SIZE) {
 			ret = -EINVAL;
 			break;
 		}
-		ret = verify_skcipher_des3_key(ctfm, key);
+		//ret = verify_skcipher_des3_key(ctfm, key);
+	  	if (!des_ekey(tmp, key) &&
+		  	(tfm->crt_flags & CRYPTO_TFM_REQ_WEAK_KEY)) 
+		{
+		    ret = EINVAL;
+	  	}
 	}
 
 	if (ret) {
@@ -753,7 +769,8 @@ static int mtk_skcipher_setkey(struct crypto_skcipher *ctfm, const u8 *key,
 	mtk_ctx_saRecord(ctx, key, nonce, keylen, flags);
 
 	if (ctx->fallback) {
-		ret = crypto_sync_skcipher_setkey(ctx->fallback, key, len);
+	// For kernel 4.14 
+		ret = crypto_skcipher_setkey(ctx->fallback, key, len);
 		if (ret)
 			return ret;
 	}
@@ -783,8 +800,9 @@ static int mtk_skcipher_crypt(struct skcipher_request *req)
 	rctx->ivsize = ivsize;
 
 	if ((req->cryptlen < NUM_AES_BYPASS) && (ctx->fallback)) {
-		SYNC_SKCIPHER_REQUEST_ON_STACK(subreq, ctx->fallback);
-		skcipher_request_set_sync_tfm(subreq, ctx->fallback);
+	// For kernel 4.14 
+		SKCIPHER_REQUEST_ON_STACK(subreq, ctx->fallback);
+		skcipher_request_set_tfm(subreq, ctx->fallback);
 		skcipher_request_set_callback(subreq, req->base.flags,
 					NULL, NULL);
 		skcipher_request_set_crypt(subreq, req->src, req->dst,
